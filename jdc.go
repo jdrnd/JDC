@@ -1,11 +1,14 @@
-package JDC
+package jdc
 
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
+	"hash/crc32"
 )
 
-const BLOCK_LEN = 32
+// Length of a block in bytes
+const blockLen = 32
 
 func deriveKey(password string) []byte {
 	hasher := sha256.New()
@@ -25,7 +28,7 @@ func deriveFeedback(key []byte, prev []byte) []byte {
 }
 
 func generateIV() []byte {
-	randomBytes := make([]byte, BLOCK_LEN)
+	randomBytes := make([]byte, blockLen)
 	_, err := rand.Read(randomBytes)
 	if err != nil {
 		return []byte{0}
@@ -33,58 +36,78 @@ func generateIV() []byte {
 	return randomBytes
 }
 
+// TODO move to PKCS #7 standard as current method can lose trailing zeros in data
 func padData(data []byte, iv []byte) []byte {
+	var numBlocks int
 	// Include extra block to store IV
-	numBlocks := (len(data) / BLOCK_LEN) + 2
+	if len(data)%blockLen == 0 {
+		numBlocks = (len(data) / blockLen) + 1
+	} else {
+		numBlocks = (len(data) / blockLen) + 2
+	}
 
-	newData := make([]byte, numBlocks*BLOCK_LEN)
-	for i:=0; i<BLOCK_LEN; i++ {
+	newData := make([]byte, numBlocks*blockLen)
+	for i := 0; i < blockLen; i++ {
 		// copy in IV
 		newData[i] = iv[i]
 	}
-	for i:=0; i< numBlocks*BLOCK_LEN; i++ {
-		if i<len(data) {
-			newData[BLOCK_LEN+i] = data[i]
+	for i := 0; i < numBlocks*blockLen; i++ {
+		if i < len(data) {
+			newData[blockLen+i] = data[i]
 		}
 		// Otherwise data will be default 0 value
 	}
 	return newData
 }
 
+// Encrypt a buffer of data with MDC
 func Encrypt(data []byte, password string) []byte {
 	key := deriveKey(password)
 	iv := generateIV()
 	// padData places IV in first block of data
 	data = padData(data, iv)
 
-	numBlocks := (len(data) / BLOCK_LEN) - 1 // Do not count IV as a block
+	numBlocks := (len(data) / blockLen) - 1 // Do not count IV as a block
 
-	for i:=1; i<= numBlocks; i++ {
-		feedback := deriveFeedback(key, data[BLOCK_LEN*(i-1):BLOCK_LEN*i])
+	var crcSum uint32 = crc32.ChecksumIEEE(data)
 
-		for j:=0; j<BLOCK_LEN; j++ {
-			data[BLOCK_LEN*i + j] ^= feedback[j]
+	for i := 1; i <= numBlocks; i++ {
+		feedback := deriveFeedback(key, data[blockLen*(i-1):blockLen*i])
+
+		for j := 0; j < blockLen; j++ {
+			data[blockLen*i+j] ^= feedback[j]
 		}
 	}
+	data = append(data, 0, 0, 0, 0)
+	binary.LittleEndian.PutUint32(data[len(data)-4:], crcSum)
+
 	return data
 }
 
+// Decrypt a buffer of MDC-encrypted data
 func Decrypt(data []byte, password string) []byte {
 	key := deriveKey(password)
-	numBlocks := (len(data) / BLOCK_LEN) - 1
+	numBlocks := ((len(data) - 4) / blockLen) - 1
 
-	for i:= numBlocks; i>0; i-- {
-		feedback := deriveFeedback(key, data[BLOCK_LEN*(i-1):BLOCK_LEN*i])
+	crcSum := binary.LittleEndian.Uint32(data[len(data)-4:])
+	data = data[:len(data)-4]
 
-		for j:=0; j<BLOCK_LEN; j++ {
-			data[BLOCK_LEN*i + j] ^= feedback[j]
+	for i := numBlocks; i > 0; i-- {
+		feedback := deriveFeedback(key, data[blockLen*(i-1):blockLen*i])
+
+		for j := 0; j < blockLen; j++ {
+			data[blockLen*i+j] ^= feedback[j]
 		}
 	}
 
 	numTrailingZeros := 0
-	for data[len(data) - 1-numTrailingZeros] == 0 {
+	for data[len(data)-1-numTrailingZeros] == 0 {
 		numTrailingZeros++
 	}
-	return data[BLOCK_LEN:len(data)-numTrailingZeros]
-}
+	decryptedCRC := crc32.ChecksumIEEE(data)
 
+	if crcSum == decryptedCRC {
+		return data[blockLen : len(data)-numTrailingZeros]
+	}
+	return nil
+}

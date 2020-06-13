@@ -1,12 +1,12 @@
-### Joel's Digest Cipher
+### JDC - A Custom Digest Cipher in Go
 
-A 256-bit cryptographic cipher using a one-way cryptographic hash function. It is a CFB-mode (cipher feedback) cipher utilizing SHA-256 as both a key-generation function and as a cipher function.
+A 256-bit cryptographic cipher using a one-way cryptographic hash function, similar to MDC. It is a CFB-mode (cipher feedback) cipher utilizing SHA-256 as both a key-generation function and as a cipher function.
 
-SHA-256 was chosen as it is compliant with both FIPS-180 [1] and NIST SP 800-108 (US Federal Government standards).
+SHA-256 was chosen as it is compliant with both FIPS-180 and NIST SP 800-108 (US Federal Government standards).
 
 #### Cipher Diagram
 
-![](diagram.jpg)
+![](images/diagram.jpg)
 
 For the first block of plaintext, a 256-bit random initialization vector is used instead of a ciphertext block.
 
@@ -16,9 +16,12 @@ I am neither a cryptographer or a mathematician. This project is purely for educ
 This software is licensed under the MIT License, see LICENSE.txt
 
 #### API/Usage
+`go test -v` to run the included unit tests.
+
 `Encrypt(data []byte, password string) []byte` - Encrypts a given byte array with a key derived from a plaintext password. Appends the initialization vector to the beginning of the encrypted data
 
 `Decrypt(data []byte, password string) []byte` - Decrypts data that has been encrypted with `Encrypt`. Strips off the initialization vector and block padding and returns the original data only.
+
 #### References/Acknowledgements
 I took this idea from Chapter 14.11 in Bruce Schneier's "Applied Cryptography". The algorithm takes inspiration from the MDC cipher and various techniques defined therein.
 
@@ -31,6 +34,8 @@ I took this idea from Chapter 14.11 in Bruce Schneier's "Applied Cryptography". 
 - [x] Key generation
 - [x] IV generation
 - [x] Padding
+    - [ ] Use an approved padding scheme such as PKCS #7
 - [x] Cipher + feedback
-- [ ] (Bonus) Robust Decryption validation
+- [x] (Bonus) Robust Decryption validation using a CRC or cryptographic hash 
+- [x] (Bonus) Benchmark/Speed tests
 - [ ] (Bonus) Refactor/Optimize so that operations are in-place whenever possible
